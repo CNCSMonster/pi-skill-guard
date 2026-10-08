@@ -117,6 +117,7 @@ Add the `skillGuard` configuration block to `.pi/settings.json` (or global `~/.p
 | `blockReadTool` | boolean | `true` | Intercept `read` calls to unauthorized skill directories |
 | `blockSkillCommand` | boolean | `true` | Intercept `/skill:<name>` invocations for unauthorized skills |
 | `notifyOnFilter` | boolean | `false` | Display filtering summary notifications in UI |
+| `notifyOnStartup` | boolean | `true` | Display defense readiness notification on session startup |
 
 ---
 
@@ -166,6 +167,11 @@ Presents a dynamic self-explanatory management menu:
 ```
 
 > **Permission Relaxation Gate**: Any operation expanding accessible skills requires explicit confirmation in TUI mode and is **rejected (Fail-Closed)** in headless (`!ctx.hasUI`) mode.
+
+### 3. Session Observability & Status Bar Indicator
+
+- **Startup Notification**: Displays a lightweight toast `🛡️ Skill Guard active [${mode}]` on `session_start` confirming defense readiness (opt-out via `notifyOnStartup: false`).
+- **Footer Status Bar**: Continuously displays `🛡️ guard:${mode}` in the terminal footer, synchronizing dynamically with commands/toggles, and clearing when disabled.
 
 ---
 

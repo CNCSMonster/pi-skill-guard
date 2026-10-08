@@ -68,6 +68,7 @@ function createMockContext(options: {
   confirmResult?: boolean;
 } = {}) {
   const notifications: Array<{ msg: string; type?: string }> = [];
+  const statusCalls: Array<{ key: string; text?: string }> = [];
   const sessionId = options.sessionId ?? "test-session-123";
   const cwd = options.cwd ?? "/workspace";
 
@@ -81,6 +82,9 @@ function createMockContext(options: {
       notify: (msg: string, type?: string) => {
         notifications.push({ msg, type });
       },
+      setStatus: (key: string, text?: string) => {
+        statusCalls.push({ key, text });
+      },
       confirm: async () => options.confirmResult ?? true,
       select: async () => undefined,
       input: async () => undefined,
@@ -90,6 +94,7 @@ function createMockContext(options: {
   return {
     ctx: ctx as ExtensionContext,
     notifications,
+    statusCalls,
   };
 }
 
@@ -638,4 +643,146 @@ test("ISSUE-0004: INV-1 Prefix Immutability protects initial System Prompt from 
     2,
     "会话开启后，before_agent_start 不得再回溯修改第 0 轮 System Prompt（INV-1 严格不可变）"
   );
+});
+
+test("ISSUE-0005: resolveConfig parses notifyOnStartup with safe defaults and fallback", () => {
+  // 1. 默认值断言
+  const mockDefault = createMockPi();
+  const cfgDefault = resolveConfig(mockDefault.pi);
+  assert.equal(cfgDefault.notifyOnStartup, true);
+
+  // 2. 显式设为 false
+  const mockFalse = createMockPi({
+    skillGuard: {
+      notifyOnStartup: false,
+    },
+  });
+  const cfgFalse = resolveConfig(mockFalse.pi);
+  assert.equal(cfgFalse.notifyOnStartup, false);
+
+  // 3. 非 boolean 脏数据安全降级
+  const mockInvalid = createMockPi({
+    skillGuard: {
+      notifyOnStartup: "invalid" as any,
+    },
+  });
+  const cfgInvalid = resolveConfig(mockInvalid.pi);
+  assert.equal(cfgInvalid.notifyOnStartup, true);
+});
+
+test("ISSUE-0005: session_start triggers startup notification and sets status bar when UI is present", async () => {
+  const mock = createMockPi({
+    skillGuard: {
+      enabled: true,
+      mode: "allowlist",
+      notifyOnStartup: true,
+    },
+  });
+  skillGuard(mock.pi);
+
+  const sessionStartHook = mock.handlers["session_start"]?.[0];
+  assert.ok(sessionStartHook);
+
+  const { ctx, notifications, statusCalls } = createMockContext({
+    hasUI: true,
+    sessionId: "startup-ui-session",
+  });
+
+  await sessionStartHook({}, ctx);
+
+  // 断言瞬态通知
+  assert.ok(
+    notifications.some((n) => n.msg === "🛡️ Skill Guard active [allowlist]" && n.type === "info"),
+    "必须触发瞬态启动通知"
+  );
+
+  // 断言状态栏指示器
+  assert.deepEqual(statusCalls, [
+    { key: "skill-guard", text: "🛡️ guard:allowlist" },
+  ]);
+});
+
+test("ISSUE-0005: session_start respects notifyOnStartup false to stay quiet while maintaining status bar", async () => {
+  const mock = createMockPi({
+    skillGuard: {
+      enabled: true,
+      mode: "blocklist",
+      notifyOnStartup: false,
+    },
+  });
+  skillGuard(mock.pi);
+
+  const sessionStartHook = mock.handlers["session_start"]?.[0];
+  assert.ok(sessionStartHook);
+
+  const { ctx, notifications, statusCalls } = createMockContext({
+    hasUI: true,
+    sessionId: "startup-quiet-session",
+  });
+
+  await sessionStartHook({}, ctx);
+
+  // 静音断言：不触发通知
+  assert.equal(notifications.length, 0, "notifyOnStartup 为 false 时不得触发启动通知");
+
+  // 但常驻状态栏仍需正确设置
+  assert.deepEqual(statusCalls, [
+    { key: "skill-guard", text: "🛡️ guard:blocklist" },
+  ]);
+});
+
+test("ISSUE-0005: session_start clears status bar and suppresses notification when disabled", async () => {
+  const mock = createMockPi({
+    skillGuard: {
+      enabled: false,
+      mode: "allowlist",
+    },
+  });
+  skillGuard(mock.pi);
+
+  const sessionStartHook = mock.handlers["session_start"]?.[0];
+  assert.ok(sessionStartHook);
+
+  const { ctx, notifications, statusCalls } = createMockContext({
+    hasUI: true,
+    sessionId: "startup-disabled-session",
+  });
+
+  await sessionStartHook({}, ctx);
+
+  assert.equal(notifications.length, 0, "禁用状态下不得触发通知");
+  assert.deepEqual(statusCalls, [
+    { key: "skill-guard", text: undefined },
+  ], "禁用状态下必须清除状态栏");
+});
+
+test("ISSUE-0005: applyAction dynamically synchronizes status bar indicator upon state mutations", async () => {
+  const mock = createMockPi({
+    skillGuard: {
+      enabled: true,
+      mode: "allowlist",
+    },
+  });
+  skillGuard(mock.pi);
+
+  const sessionId = "action-sync-session";
+  const { ctx, statusCalls } = createMockContext({
+    hasUI: true,
+    sessionId,
+  });
+
+  // 1. 切换到 blocklist 模式
+  const modeRes = await applyAction({ type: "mode", mode: "blocklist" }, ctx, mock.pi);
+  assert.equal(modeRes, true);
+  assert.equal(statusCalls[statusCalls.length - 1]?.text, "🛡️ guard:blocklist");
+
+  // 2. 动态停用守卫 (disable)
+  const disableRes = await applyAction({ type: "disable" }, ctx, mock.pi);
+  assert.equal(disableRes, true);
+  assert.equal(statusCalls[statusCalls.length - 1]?.text, undefined, "停用后状态栏指示器应被清除");
+
+  // 3. 重新启用守卫 (enable)
+  const enableRes = await applyAction({ type: "enable" }, ctx, mock.pi);
+  assert.equal(enableRes, true);
+  assert.equal(statusCalls[statusCalls.length - 1]?.text, "🛡️ guard:blocklist");
 });
