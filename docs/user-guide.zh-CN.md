@@ -46,10 +46,23 @@ pi install git:github.com/CNCSMonster/pi-skill-guard
       "*-dangerous",
       "boss-recruitment"
     ],
-    "blockReadTool": true
+    "blockReadTool": true,
+    "notifyOnStartup": true
   }
 }
 ```
+
+配置项完整说明：
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `enabled` | boolean | `true` | 是否启用技能守卫 |
+| `mode` | `"allowlist"` \| `"blocklist"` | `"allowlist"` | 隔离模式：白名单模式或黑名单模式 |
+| `allow` | string[] | `[]` | 允许的技能名称或通配符（支持 `*` 和 `?`） |
+| `block` | string[] | `[]` | **最高优先级**：禁止的技能名称或通配符（Deny-First，命中必封禁） |
+| `blockReadTool` | boolean | `true` | 是否物理拦截针对未授权技能目录的 `read` 操作 |
+| `blockSkillCommand` | boolean | `true` | 是否拦截针对未授权技能的 `/skill:<name>` 命令 |
+| `notifyOnFilter` | boolean | `false` | 每轮执行过滤后是否在会话中提示过滤统计 |
+| `notifyOnStartup` | boolean | `true` | 会话启动时是否弹出瞬态通知提示防护就绪 |
 
 ---
 
@@ -118,6 +131,13 @@ pi install git:github.com/CNCSMonster/pi-skill-guard
 2. **放权二次确认（Fail-Closed Gate）**：任何导致放行范围扩大的操作（如停用守卫、转黑名单、删除封禁、增加放行规则）：
    - 在交互终端（TUI）下强制弹出 `confirm` 二次确认弹窗，明确展示放权影响；
    - 在无 UI 环境（CI/CD、Headless 模式）下**严格 Fail-Closed 拒绝**，防范自动化脚本误放权。
+
+### 3.4 会话可观测性与底部状态栏指示（Status Bar & Notifications）
+
+为彻底消除会话开局 `Loaded Resources` 物理全量显示带来的困惑，扩展提供了透明的状态感知机制：
+1. **启动就绪提示**：会话启动 (`session_start`) 时，若守卫已启用且未被静音（`notifyOnStartup: true`），自动弹出 `🛡️ Skill Guard active [${mode}]` 瞬态气泡，明确告知用户目录级防护已生效。
+2. **常驻状态栏指示器**：在 TUI 底部状态栏持久显示标签 `🛡️ guard:${mode}`（例如 `🛡️ guard:allowlist`）。若守卫被停用，状态栏标签自动清除。
+3. **动态命令强一致联动**：当通过 `/skill-guard` 命令行或交互菜单切换模式、启用或停用守卫时，底部状态栏标签实时同步更新。
 
 ---
 

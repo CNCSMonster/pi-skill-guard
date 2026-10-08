@@ -117,6 +117,7 @@ pi install git:github.com/CNCSMonster/pi-skill-guard
 | `blockReadTool` | boolean | `true` | 是否物理拦截针对未授权技能目录的 `read` 操作 |
 | `blockSkillCommand` | boolean | `true` | 是否拦截针对未授权技能的 `/skill:<name>` 命令 |
 | `notifyOnFilter` | boolean | `false` | 每轮执行过滤后是否在会话中提示过滤统计 |
+| `notifyOnStartup` | boolean | `true` | 会话启动时是否弹出瞬态通知提示防护就绪 |
 
 ---
 
@@ -168,6 +169,11 @@ pi install git:github.com/CNCSMonster/pi-skill-guard
 ```
 
 > **放权审查门禁**：任何导致技能放行范围扩大的操作（如停用守卫、切换黑名单、解除封禁、退化全放行等），在 TUI 模式下必须经过二次弹窗确认；在无界面的 Headless 模式下一律 **Fail-Closed 拒绝**。
+
+### 3. 会话可观测性与底部状态栏指示器
+
+- **启动瞬态提示**：在会话启动（`session_start`）时自动弹出轻量级提示 `🛡️ Skill Guard active [${mode}]`，明确确认目录级安全边界就绪（可通过配置 `notifyOnStartup: false` 静音关闭）。
+- **底部常驻状态栏**：在交互式终端底部状态栏持久显示标签 `🛡️ guard:${mode}`，跟随命令与切换操作实时同步，守卫停用时自动清除。
 
 ---
 

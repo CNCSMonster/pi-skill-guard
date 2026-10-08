@@ -10,6 +10,7 @@ export interface SkillGuardConfig {
   blockReadTool?: boolean;
   blockSkillCommand?: boolean;
   notifyOnFilter?: boolean;
+  notifyOnStartup?: boolean;
 }
 
 export const DEFAULT_CONFIG: Required<SkillGuardConfig> = {
@@ -20,6 +21,7 @@ export const DEFAULT_CONFIG: Required<SkillGuardConfig> = {
   blockReadTool: true,
   blockSkillCommand: true,
   notifyOnFilter: false,
+  notifyOnStartup: true,
 };
 
 /**

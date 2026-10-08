@@ -46,10 +46,23 @@ Configure `skillGuard` within your workspace's trusted `.pi/settings.json`:
       "*-dangerous",
       "boss-recruitment"
     ],
-    "blockReadTool": true
+    "blockReadTool": true,
+    "notifyOnStartup": true
   }
 }
 ```
+
+Full Configuration Reference:
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Enable or disable skill guard defense |
+| `mode` | `"allowlist"` \| `"blocklist"` | `"allowlist"` | Active mode: allowlist or blocklist |
+| `allow` | string[] | `[]` | Allowed skill patterns (supports `*` and `?`) |
+| `block` | string[] | `[]` | **Top Priority**: Denied skill patterns (Deny-First rule) |
+| `blockReadTool` | boolean | `true` | Intercept `read` calls to unauthorized skill directories |
+| `blockSkillCommand` | boolean | `true` | Intercept `/skill:<name>` invocations for unauthorized skills |
+| `notifyOnFilter` | boolean | `false` | Display filtering summary notifications in UI |
+| `notifyOnStartup` | boolean | `true` | Display defense readiness notification on session startup |
 
 ---
 
@@ -116,6 +129,13 @@ Displays an intuitive self-explanatory menu:
 2. **Fail-Closed Relaxation Gate**: Any operation expanding access (disabling guard, switching to blocklist, unblocking rules, expanding allowlist):
    - In TUI mode: triggers a mandatory confirmation modal detailing permission changes;
    - In non-UI mode (CI/CD, Headless): **fails closed immediately**, preventing silent privilege escalation.
+
+### 3.4 Session Observability & Status Bar Indicator
+
+To eliminate confusion caused by Pi's startup `Loaded Resources` panel showing all filesystem skills, the extension provides clear observability:
+1. **Startup Readiness Notification**: On `session_start`, if the guard is active and not muted (`notifyOnStartup: true`), an info notification `🛡️ Skill Guard active [${mode}]` is displayed, confirming directory-level defenses are active.
+2. **Persistent Status Bar Indicator**: Sets a compact status badge `🛡️ guard:${mode}` (e.g. `🛡️ guard:allowlist`) in the terminal footer. The badge is cleared when disabled.
+3. **Dynamic Synchronization**: When toggling modes, enabling, or disabling the guard via `/skill-guard` commands or menu, the status bar indicator updates in real-time.
 
 ---
 

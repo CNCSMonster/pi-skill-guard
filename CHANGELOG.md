@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Session Observability & Status Bar Indicator (ISSUE-0005)**: Added lightweight startup notification (`🛡️ Skill Guard active [${mode}]`) on `session_start` to eliminate confusion from startup resource panels, with quiet opt-out via `notifyOnStartup: false`. Added persistent live status bar indicator (`🛡️ guard:${mode}`) in the terminal footer dynamically synchronizing across `/skill-guard` actions and clearing on disable.
+
 ## [0.2.0] - 2026-10-08
 
 ### Breaking Changes

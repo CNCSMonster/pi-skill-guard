@@ -269,6 +269,7 @@ export function resolveConfig(pi?: ExtensionAPI): Required<SkillGuardConfig> {
   const blockReadTool = typeof effective.blockReadTool === "boolean" ? effective.blockReadTool : DEFAULT_CONFIG.blockReadTool;
   const blockSkillCommand = typeof effective.blockSkillCommand === "boolean" ? effective.blockSkillCommand : DEFAULT_CONFIG.blockSkillCommand;
   const notifyOnFilter = typeof effective.notifyOnFilter === "boolean" ? effective.notifyOnFilter : DEFAULT_CONFIG.notifyOnFilter;
+  const notifyOnStartup = typeof effective.notifyOnStartup === "boolean" ? effective.notifyOnStartup : DEFAULT_CONFIG.notifyOnStartup;
 
   return {
     enabled,
@@ -278,7 +279,20 @@ export function resolveConfig(pi?: ExtensionAPI): Required<SkillGuardConfig> {
     blockReadTool,
     blockSkillCommand,
     notifyOnFilter,
+    notifyOnStartup,
   };
+}
+
+/**
+ * 保持 TUI 底部状态栏标签与有效配置强一致 (INV-2)
+ */
+export function updateStatusBar(ctx: ExtensionContext, config: SkillGuardConfig): void {
+  if (!ctx.hasUI) return;
+  if (config.enabled) {
+    ctx.ui.setStatus("skill-guard", `🛡️ guard:${config.mode ?? "allowlist"}`);
+  } else {
+    ctx.ui.setStatus("skill-guard", undefined);
+  }
 }
 
 // ==========================================
@@ -638,6 +652,8 @@ export async function applyAction(
     }
 
     if (ctx.hasUI) {
+      const currentConfig = getEffectiveConfig(resolveConfig(pi), sessionId).config;
+      updateStatusBar(ctx, currentConfig);
       ctx.ui.notify("Skill-guard 规则已更新（工具阻断即时生效，Prompt 下轮更新）。", "info");
     }
     return true;
@@ -1015,12 +1031,23 @@ function printStatusReport(
 // ==========================================
 
 export default function skillGuard(pi: ExtensionAPI): void {
-  // 1. 生命周期管理：会话切换或关闭时处理临时覆盖
+  // 1. 生命周期管理：会话切换或关闭时处理临时覆盖与状态感知
   pi.on("session_start", (_event, ctx) => {
     checkLegacyConfigWarning(ctx);
     const sessionId = resolveSessionId(ctx);
     if (sessionId) {
       clearSessionSkillState(sessionId);
+    }
+
+    if (ctx.hasUI) {
+      const base = resolveConfig(pi);
+      const { config } = getEffectiveConfig(base, sessionId);
+      if (config.enabled) {
+        if (config.notifyOnStartup ?? true) {
+          ctx.ui.notify(`🛡️ Skill Guard active [${config.mode}]`, "info");
+        }
+      }
+      updateStatusBar(ctx, config);
     }
   });
 
