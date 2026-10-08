@@ -4,7 +4,6 @@ import {
   globToRegex,
   matchesAnyPattern,
   isSkillAllowed,
-  extractSkillNameFromPath,
 } from "../extensions/matcher.ts";
 
 test("globToRegex converts wildcards correctly", () => {
@@ -33,6 +32,7 @@ test("matchesAnyPattern matches exact and wildcards", () => {
   assert.equal(matchesAnyPattern("ccm-note-1", patterns), true);
   assert.equal(matchesAnyPattern("ccm-note-write", patterns), false);
   assert.equal(matchesAnyPattern("unrelated", patterns), false);
+  assert.equal(matchesAnyPattern("  cloudflare  ", patterns), true); // trim
 });
 
 test("isSkillAllowed in allowlist mode", () => {
@@ -67,35 +67,33 @@ test("isSkillAllowed in blocklist mode", () => {
   assert.equal(isSkillAllowed("crypto-mining", config), false);
 });
 
+test("isSkillAllowed enforces Deny-First invariant (block overrides allow)", () => {
+  const config = {
+    mode: "allowlist" as const,
+    allow: ["danger-skill", "safe-*"],
+    block: ["danger-skill", "safe-evil"],
+  };
+
+  // 即使在 allow 中，命中 block 也必须强制阻断
+  assert.equal(isSkillAllowed("danger-skill", config), false);
+  assert.equal(isSkillAllowed("safe-evil", config), false);
+  assert.equal(isSkillAllowed("safe-good", config), true);
+});
+
 test("isSkillAllowed when disabled", () => {
   const config = {
     enabled: false,
     mode: "allowlist" as const,
     allow: ["only-this"],
+    block: ["anything"],
   };
   assert.equal(isSkillAllowed("anything", config), true);
 });
 
-test("extractSkillNameFromPath extracts from standard directories", () => {
-  assert.equal(
-    extractSkillNameFromPath("/home/user/.agents/skills/tavily-search/SKILL.md"),
-    "tavily-search"
-  );
-  assert.equal(
-    extractSkillNameFromPath("/repo/.pi/skills/custom-tool/subdir/script.py"),
-    "custom-tool"
-  );
-  assert.equal(
-    extractSkillNameFromPath("/home/user/.claude/skills/demo-tool/SKILL.md"),
-    "demo-tool"
-  );
-  assert.equal(
-    extractSkillNameFromPath("C:\\Users\\dev\\.agents\\skills\\my-skill\\SKILL.md"),
-    "my-skill"
-  );
-  assert.equal(
-    extractSkillNameFromPath("/repo/src/skills/not-a-skill-file.ts"),
-    "not-a-skill-file.ts"
-  );
-  assert.equal(extractSkillNameFromPath("/repo/src/regular-file.ts"), null);
+test("isSkillAllowed normalizes case and whitespace", () => {
+  const config = {
+    mode: "allowlist" as const,
+    allow: ["my-skill"],
+  };
+  assert.equal(isSkillAllowed("  MY-SKILL  ", config), true);
 });

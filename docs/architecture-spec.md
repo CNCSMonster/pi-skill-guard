@@ -1,0 +1,205 @@
+<!-- Source: pi-skill-guard-docs/design/architecture-spec.md | Sync date: 2026-10-08 -->
+
+# pi-skill-guard 架构设计总规范 (Architecture Specification)
+
+- **版本**: 1.0.0
+- **定位**: `pi-skill-guard` 系统级总设计规范与安全架构权威参考（SSOT）
+- **状态**: Active (Living Document)
+- **维护原则**: 严守零第三方运行时依赖，遵循最小权限法则与 Fail-Closed 哲学
+
+---
+
+## 1. 核心定位与设计哲学
+
+### 1.1 痛点背景
+在 [Pi Coding Agent](https://pi.dev) 的典型开发工作流中，开发者本机通常会积累大量全局 Agent Skills（例如股票行情、网络爬虫、社交平台招聘、云原生运维等）。然而在特定垂直代码仓（如高密核心服务、纯文档库）中，不受约束的全局技能暴露将引入三大致命缺陷：
+
+1. **Token 浪费与上下文污染**：Pi 默认将所有全局技能的元数据全量注入每轮对话的 `<available_skills>` 块中。这在大型代码库中每轮对话无谓消耗数千 Token，且稀释了有效上下文窗口。
+2. **意图漂移与工具幻觉误触**：模型极易因语义模糊诱导误调无关的外部技能（如在后端仓库中误调爬虫或金融工具），破坏操作确定性。
+3. **配置分层边界缺失**：Pi 核心的 `settings.json` 在项目局部缺乏跨界过滤用户全局技能目录（`~/.pi/agent/skills/`、`~/.agents/skills/`）的机制。
+
+### 1.2 核心设计哲学
+- **最小权限原则 (Principle of Least Privilege)**：默认推荐严格白名单机制，仅显式授予项目所需的最小技能子集。
+- **Fail-Closed 刚性门禁**：任何未知状态、异常格式或无交互界面模式下的放权尝试，一律安全阻断，杜绝“故障即放行（Fail-Open）”。
+- **纵深物理防御 (Defense-in-Depth)**：不依赖 LLM 自觉遵从提示词约束，在 Prompt 装配、工具底层调用、命令路由三层同时设卡拦截。
+- **沙箱隔离与信任穿透免疫**：恪守 Pi Trust 边界，严禁扩展未经受信任上下文私自读取工作区磁盘，覆盖操作纯内存驻留。
+- **零运行时依赖 (Zero Third-Party Runtime Dependencies)**：完全基于原生 TypeScript 与 Node.js 内置模块实现，杜绝外部供应链攻击面。
+
+---
+
+## 2. 威胁模型 (Threat Model)
+
+`pi-skill-guard` 旨在抵御以下攻击与非预期执行路径：
+
+| 威胁代号 | 攻击途径 / 异常路径 | 危害后果 | 防御对策 |
+|---|---|---|---|
+| **T-1: 提示词注入泄露** | 攻击者或外部不可信输入诱导 Agent 读取或描述未受权技能指令。 | 敏感业务能力泄露、模型逻辑受外部技能污染。 | **Layer 1**: 原地裁剪技能列表，未授权技能物理上不进入 `<available_skills>`。 |
+| **T-2: 工具绕过直读** | Agent 虽未被告知技能，但被诱导使用 `read` 工具直读技能文件（如 `read ~/.pi/.../SKILL.md`）。 | 越权获取技能提示词并执行敏感操作。 | **Layer 2**: `tool_call` 网关底层拦截，物理熔断。 |
+| **T-3: 符号链接逃逸** | 外部通过软链接指入（`link -> target`）或指出技能目录读取。 | 单一依赖逻辑或物理路径匹配导致判定脱靶。 | **双路核验**: 逻辑绝对路径与 `realpath` 物理真实路径笛卡尔积核验，直读尾斜杠规整。 |
+| **T-4: 隐式放权提升** | 通过构造非完备命令（如清空白名单、模式切换）使防御静默失效。 | 权限意外扩大，守卫形同虚设。 | **数学结构化放权判定**: 计算结构变迁差集，无 UI 强制 Fail-Closed，TUI 强制二次确认。 |
+| **T-5: 并发与会话泄漏** | 多会话并发操作或新 Fork 会话继承临时放权规则。 | 跨会话越权、配置撕裂与旧快照竞态落地。 | **真实会话绑定与串行互斥锁**: `withSessionLock` 保证操作原子性，确认后原子二次核算。 |
+
+---
+
+## 3. 三层硬隔离架构拓扑 (System Topology)
+
+```
+                            用户输入 Prompt / API 任务
+                                      │
+                                      ▼
+             ┌──────────────────────────────────────────────────┐
+             │ Layer 1: Prompt 物理裁剪 (before_agent_start)       │
+             │                                                  │
+             │ 1. 动态收集 Skill 真实路径注册前缀表                    │
+             │ 2. 严格核算生效规则 (Base + Runtime Delta)         │
+             │ 3. 原地修改 (In-Place) systemPromptOptions.skills│
+             └────────────────────────┬─────────────────────────┘
+                                      │  (仅白名单技能注入系统 Prompt)
+                                      ▼
+                              LLM 模型推理与规划
+                                      │
+                   ┌──────────────────┴──────────────────┐
+                   │                                     │
+                   ▼                                     ▼
+        模型发起工具调用 (tool_call)               用户触发快捷命令 (input)
+                   │                                     │
+ ┌─────────────────┴─────────────────┐ ┌─────────────────┴─────────────────┐
+ │ Layer 2: 运行时底层阻断            │ │ Layer 3: 命令执行守卫            │
+ │ (针对 read 工具)                   │ │ (针对 /skill:* 命令)             │
+ │                                   │ │                                   │
+ │ 1. 逻辑绝对路径与 realpath 双路解析│ │ 1. 提取目标技能标识符             │
+ │ 2. 规整化带尾斜杠支持目录直读匹配 │ │ 2. 执行大小写归一化检查           │
+ │ 3. 命中非授权技能 ➔ block: true   │ │ 3. 命中非授权技能 ➔ handled 阻断  │
+ └─────────────────┬─────────────────┘ └─────────────────┬─────────────────┘
+                   │                                     │
+                   ▼                                     ▼
+               放行调用 / 物理拦截警告               放行执行 / 错误拦截提示
+```
+
+### 3.1 Layer 1: Prompt 物理裁剪层
+- **触发点**: `pi.on("before_agent_start", ...)`
+- **核心行为**:
+  - 获取由 Pi 核心加载的完整技能列表；
+  - 动态提取每个技能的 `baseDir` 与 `filePath`，注册至内部前缀表；
+  - 基于当前会话生效配置执行 `isSkillAllowed` 过滤；
+  - **原地修改保证**: 执行 `skills.length = 0; skills.push(...filtered);`，确保无论是属性读取还是持有原引用的渲染器均能准确捕获裁剪结果，实现 **0 Token 浪费**。
+
+### 3.2 Layer 2: 运行时物理路径拦截网关
+- **触发点**: `pi.on("tool_call", ...)`
+- **核心行为**:
+  - 针对 `read` 工具的路径参数，先以 `ctx.cwd` 为基准解析为逻辑绝对路径，再尝试 `fs.realpathSync` 获取真实物理绝对路径；
+  - 对当前工作区 `cwd` 同步执行逻辑与物理变体采集（消除 macOS `/private/tmp` 与 `/tmp` 路径失配）；
+  - 将待测路径规整化为带尾斜杠形式（`withSlash`），既匹配目录内部文件访问，又精准捕获目录本身的直接读取（`read <dir>`）；
+  - 笛卡尔积核验所有候选路径，只要命中任一未授权技能标识，直接返回 `{ block: true, reason: ... }` 物理阻断调用。
+
+### 3.3 Layer 3: 命令交互拦截层
+- **触发点**: `pi.on("input", ...)`
+- **核心行为**:
+  - 嗅探 `/skill:<skill-name>` 格式的输入；
+  - 提取技能名并规整为小写 trim 字符串；
+  - 若目标技能未在当前会话授权，弹出错误通知并返回 `{ action: "handled" }`，彻底阻断执行链路。
+
+---
+
+## 4. 安全不变量与刚性铁律 (Security Invariants)
+
+系统的任何后续演进必须通过自动化回归证明以下四大不变量不被破坏：
+
+### 不变量 I1: Deny-First 刚性铁律
+- **形式化定义**:
+  $$\forall s \in \text{Skills},\quad \text{matchesAny}(s, \text{config.block}) \implies \text{isSkillAllowed}(s) = \text{false}$$
+- **语义说明**: 无论当前处于 `allowlist` 还是 `blocklist` 模式，黑名单规则具有超越一切的绝对最高优先级。`allow` 规则永远无法豁免被 `block` 命中的技能。
+
+### 不变量 I2: Fail-Closed 对称熔断
+- **形式化定义**:
+  $$\text{isValid}(\text{config}) = \text{false} \implies \text{effectiveBlock} \ni "*"$$
+- **语义说明**: 配置解析失败、数组包含非法类型导致过滤后变空、或输入未知 `mode` 时，系统严禁静默回退为全放行状态；系统将自动注入 Fail-Closed 哨兵（白名单注入不可达哨兵，黑名单注入 `["*"]` 全阻断）。在 `!ctx.hasUI`（无交互界面/自动化脚本）模式下，禁止任何放宽权限的操作。
+
+### 不变量 I3: Trust 沙箱边界隔离
+- **形式化定义**:
+  $$\text{resolveConfig}() \text{ 不调用 } \text{fs.readFileSync}(\text{untrusted})$$
+- **语义说明**: 彻底废弃对未受信任目录下独立 `.pi/skill-guard.json` 的读盘行为。配置唯一权威来源于 Pi 核心的 `pi.getSettings().skillGuard`，杜绝未授权项目在未通过 Trust 确认时翻窗注入安全规则。
+
+### 不变量 I4: 会话纯内存沙箱与原子落地
+- **形式化定义**:
+  $$\text{RuntimeDelta} \cap \text{DiskFiles} = \emptyset \quad \land \quad \text{Session}(A) \cap \text{Session}(B) = \emptyset$$
+- **语义说明**: 所有的运行时修改仅存于模块内存 `Map<string, RuntimeDelta>` 中，不碰磁盘。会话 ID 严格通过 `ctx.sessionManager.getSessionId()` 提取，提取失败一律拒绝修改。为每个会话设置 Promise 串行互斥锁（Mutex），用户确认弹窗返回后重新比对结构化特征签名，彻底消除并发竞态与旧快照撕裂落地。
+
+---
+
+## 5. 数学模型与结构化放权判定算法
+
+为了彻底杜绝依赖不完整技能枚举所导致的“隐式放权漏洞”（如白名单为空时添加规则后撤销退化为全放行），系统采用**纯结构变迁数学判定算法**：
+
+```typescript
+export function isStructurallyRelaxing(
+  cur: Required<SkillGuardConfig>,
+  next: Required<SkillGuardConfig>
+): RelaxationReport
+```
+
+### 5.1 放权变迁判定矩阵
+
+系统判定 $\text{next}$ 相对于 $\text{cur}$ 属于放权（Relaxing Action）当且仅当满足以下任一条件：
+
+1. **守卫全局停用**:
+   $$\text{cur.enabled} = \text{true} \land \text{next.enabled} = \text{false}$$
+2. **模式从白转黑**:
+   $$\text{cur.mode} = \text{"allowlist"} \land \text{next.mode} = \text{"blocklist"}$$
+3. **黑名单规则缩减**:
+   $$\exists b \in \text{cur.block}, \quad b \notin \text{next.block}$$
+4. **白名单模式下规则清空（退化为全放行）**:
+   $$\text{next.mode} = \text{"allowlist"} \land |\text{cur.allow}| > 0 \land |\text{next.allow}| = 0$$
+5. **白名单模式下规则集合扩充**:
+   $$\text{next.mode} = \text{"allowlist"} \land |\text{cur.allow}| > 0 \land (\exists a \in \text{next.allow}, a \notin \text{cur.allow})$$
+6. **已知技能差集逃逸**:
+   $$\exists s \in \text{KnownSkills}, \quad \neg\text{isAllowed}(s, \text{cur}) \land \text{isAllowed}(s, \text{next})$$
+
+### 5.2 结构化签名与二次核算闭环
+在用户确认弹窗等待期间，外部配置可能发生并发修改。系统在操作落地前生成结构化签名 `signature`：
+- 若确认返回后重新计算的 $\text{recheck.signature} \neq \text{check.signature}$，系统判定为状态并发漂移，立即安全终止操作，杜绝非法状态越权生效。
+
+---
+
+## 6. 评测与攻防基准方法论 (Evaluation & Benchmark Methodology)
+
+为了确保防御体系在长期演进中保持工业级可靠性，项目建立了规范化的安全评测体系。
+
+### 6.1 双盲黄金评测集机制 (Private Blind Eval Set)
+- **绝对闭源原则**: 核心对抗测试载荷（包含路径穿越畸变、隐蔽软链接跳跃、特殊 Unicode 欺骗、复杂通配符逃逸等）独立维护于私有闭源评测仓中，绝对禁止进入公开仓库。
+- **防止指标失效 (Goodhart 定律)**: 避免对抗载荷进入大语言模型的训练集，确保黑盒双盲评测具备长期真实的检验效力。
+- **防止白盒定向逆向**: 保护防御边界特征，避免攻击者根据测试集逆向构造规避攻击。
+
+### 6.2 核心量化指标
+在对守卫逻辑与协同分类器进行基准评估时，使用以下核心度量：
+- **防御召回率 (Defense Recall / Security Precision)**:
+  $$\text{Recall} = \frac{\text{Blocked Exploits}}{\text{Total Malicious Exploits}}$$
+  目标恒为 **100%**，任何安全漏报直接触发阻断门禁。
+- **误报率 (False Positive Rate, FPR)**:
+  $$\text{FPR} = \frac{\text{Blocked Benign Requests}}{\text{Total Benign Requests}}$$
+  合法项目技能调用的摩擦阻断率，基准目标 $\le 0.1\%$。
+- **端到端 Prompt 泄漏率 (Prompt Leakage Rate)**:
+  在模拟 Agent 实际组装提示词的流水线中，未受权技能关键词在系统提示词中的检出率，刚性指标为 **0.00%**。
+
+---
+
+## 7. 模块划分与源码图谱
+
+```
+extensions/
+├── matcher.ts         # 模式匹配核心：Glob 编译、大小写规范化、Deny-First 判定实现
+└── skill-guard.ts     # 扩展网关：动态路径推导、三层拦截管道、会话内存覆盖与串行互斥锁
+
+tests/
+├── matcher.test.ts    # 单元测试：模式匹配、通配符、Deny-First 语义、大小写与边界测试
+└── skill-guard.test.ts# 集成与安全测试：双路 realpath、目录直读、原地修改、Fail-Closed、端到端 Prompt 门禁
+```
+
+---
+
+## 8. 总结与演进准则
+
+`pi-skill-guard` 坚持以**确定性代码拦截为主，LLM 软策略为辅**的安全准则。凡涉及本系统架构的新增功能与代码提交，必须满足：
+1. **不破坏既有不变量 I1 至 I4**；
+2. **新增路径特征与判定必须提供逻辑与物理双路测试用例**；
+3. **CI 门禁必须通过原生 Node.js 测试套件的端到端真实渲染断言**。

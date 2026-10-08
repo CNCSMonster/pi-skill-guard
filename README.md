@@ -1,47 +1,47 @@
 # pi-skill-guard
 
-**English** | [简体中文](./README.zh-CN.md)
+**English** | [简体中文](./README.zh-CN.md) | [User Guide](./docs/user-guide.md) | [Architecture Spec](./docs/architecture-spec.md)
 
-Project-level declarative skill boundary defense and prompt pruning extension for [Pi Coding Agent](https://pi.dev).
+Project-level declarative Skill boundary defense and prompt pruning extension for [Pi Coding Agent](https://pi.dev).
 
 ---
 
 ## 🎯 Why pi-skill-guard?
 
-As developers accumulate dozens of global Agent Skills (web crawlers, financial scrapers, recruitment tools, cloud ops), working inside specialized repositories (such as documentation monorepos or sensitive codebases) introduces distinct pain points:
+Developers often accumulate a large collection of global Agent Skills (e.g., stock scrapers, job recruiters, cloud devops, etc.). However, in domain-specific repositories (such as documentation knowledge bases or core backend microservices), unconstrained global skills create severe issues:
 
-1. **Token Waste & Context Pollution**: Pi injects all installed skill names and descriptions into `<available_skills>` every turn, wasting thousands of context tokens.
-2. **Intent Drift & Accidental Invocations**: Models frequently misidentify skill keywords and execute foreign skills unrelated to the current task.
-3. **Core Configuration Scoping Limits**: Pi's standard project-level `settings.json` resource filters cannot cross scope boundaries to filter global `~/.agents/skills`.
+1. **Token Waste & Context Pollution**: Pi injects all loaded global skills into the system prompt's `<available_skills>` section on every turn, consuming thousands of tokens unnecessarily.
+2. **Model Intent Drift & Hallucinations**: Semantic similarities often lead models to invoke irrelevant or dangerous global tools.
+3. **Core Configuration Boundaries**: Pi's project-level `settings.json` cannot natively filter global skills located in `~/.pi/agent/skills` or `~/.agents/skills`.
 
-`pi-skill-guard` delivers **dual-layer mechanical isolation** with zero runtime dependencies.
+`pi-skill-guard` solves these pain points through **dual-layer physical isolation**.
 
 ---
 
-## 🛡️ Dual-Layer Defense Architecture
+## 🛡️ Dual-Layer Architecture
 
 ```
 User Prompt
      │
      ▼
-[ Layer 1: Prompt Pruning (before_agent_start) ]
-  Intercepts systemPromptOptions.skills
-  Filters non-whitelisted skills ──▶ Only authorized skills injected into <available_skills>
-     │                               (0 token waste, source-level hallucination block)
+[ Layer 1: Physical Prompt Pruning (before_agent_start) ]
+  In-place mutation of event.systemPromptOptions.skills
+  Filters unauthorized skills ──▶ Only authorized skills enter <available_skills>
+     │                             (Zero token waste, source-level hallucination defense)
      ▼
-Model generates tool_call
+Model Tool Execution (tool_call)
      │
      ▼
-[ Layer 2: Runtime Tool Interception (tool_call) ]
-  Monitors whether 'read' attempts to access unauthorized skill directories
-  If violated ──▶ Physically blocked (block: true) with actionable diagnostic message
+[ Layer 2: Runtime Sandbox Defense (tool_call) ]
+  Dual-path verification (logical & realpath) for `read` tool accesses
+  Violations ──▶ Physically blocked (`block: true`) with security warning
 ```
 
 ---
 
 ## 📦 Installation
 
-### Option A: Direct Git Install (Recommended)
+### Method A: One-Command Git Install (Recommended)
 
 Run in any terminal:
 
@@ -49,9 +49,9 @@ Run in any terminal:
 pi install git:github.com/CNCSMonster/pi-skill-guard
 ```
 
-### Option B: Local Project Reference
+### Method B: Local Project Reference
 
-Clone locally and reference in your project's `.pi/settings.json`:
+Clone this repository and reference it in `.pi/settings.json`:
 
 ```json
 {
@@ -65,9 +65,9 @@ Clone locally and reference in your project's `.pi/settings.json`:
 
 ## ⚙️ Configuration
 
-Add a `skillGuard` section inside `.pi/settings.json` (or `~/.pi/agent/settings.json`):
+Add the `skillGuard` configuration block to `.pi/settings.json` (or global `~/.pi/agent/settings.json`):
 
-### 1. Allowlist Mode (Recommended - Principle of Least Privilege)
+### 1. Allowlist Mode (Recommended, Principle of Least Privilege)
 
 ```json
 {
@@ -80,6 +80,9 @@ Add a `skillGuard` section inside `.pi/settings.json` (or `~/.pi/agent/settings.
       "tavily-*",
       "cloudflare",
       "workers-best-practices"
+    ],
+    "block": [
+      "*-dangerous"
     ],
     "blockReadTool": true,
     "blockSkillCommand": true
@@ -107,31 +110,68 @@ Add a `skillGuard` section inside `.pi/settings.json` (or `~/.pi/agent/settings.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | boolean | `true` | Enable or disable the skill guard |
-| `mode` | `"allowlist"` \| `"blocklist"` | `"allowlist"` | Guard mode: allowlist or blocklist |
-| `allow` | string[] | `[]` | Allowed skills or wildcard patterns (`*`, `?`) |
-| `block` | string[] | `[]` | Blocked skills or wildcard patterns (`*`, `?`) |
-| `blockReadTool` | boolean | `true` | Intercept `read` tool calls to unauthorized skill directories |
-| `blockSkillCommand` | boolean | `true` | Intercept `/skill:<name>` commands for unauthorized skills |
-| `notifyOnFilter` | boolean | `false` | Show brief toast/message on prompt filtering |
+| `enabled` | boolean | `true` | Enable or disable skill guard defense |
+| `mode` | `"allowlist"` \| `"blocklist"` | `"allowlist"` | Active mode: allowlist or blocklist |
+| `allow` | string[] | `[]` | Allowed skill patterns (supports `*` and `?`) |
+| `block` | string[] | `[]` | **Top Priority**: Denied skill patterns (Deny-First rule) |
+| `blockReadTool` | boolean | `true` | Intercept `read` calls to unauthorized skill directories |
+| `blockSkillCommand` | boolean | `true` | Intercept `/skill:<name>` invocations for unauthorized skills |
+| `notifyOnFilter` | boolean | `false` | Display filtering summary notifications in UI |
 
 ---
 
-## 💡 Slash Command
+## ⚠️ Security Invariants & Breaking Changes
 
-Inside Pi session:
+1. **Deny-First Priority (Breaking Change)**: Block rules unconditionally override allowlist rules in all modes.
+2. **Standalone File Deprecation (Breaking Change)**: In accordance with Pi Trust security invariants, reading unverified `.pi/skill-guard.json` is deprecated. All settings must reside in trusted `.pi/settings.json`.
+3. **Strict Fail-Closed**: Malformed rules or invalid configurations automatically trigger fail-closed sentinels rather than falling open.
+4. **Pure In-Memory Session Overrides**: Runtime adjustments never touch the disk and are isolated to the active session lifecycle.
+5. **Prefix Immutability & Tail Constraints (KV Cache Preservation)**: Disabling or mounting skills mid-session never mutates the initial System Prompt. This eliminates context-fracturing contradictions with previous reasoning (`thinking` blocks) and preserves 99%+ of the prefill KV Cache. Active constraints are dynamically projected into the tail of the context via `<active_skill_constraints>` alongside dual-channel (`read` + `bash`) tool gates.
+
+---
+
+## 💡 Commands & Interactive Management
+
+### 1. Interactive TUI Menu
+
+Type directly in interactive mode:
 
 ```text
 /skill-guard
 ```
 
-Displays active guard status, mode, and current rule definitions.
+Presents a dynamic self-explanatory management menu:
+- 🛡️ Enable / 🔘 Disable guard
+- 🔄 Switch between allowlist and blocklist
+- ➕ Add temporary allow rule (`allow`)
+- 🚫 Add temporary block rule (`block`)
+- ➖ Revoke temporary allow rule (`unallow`)
+- 🔓 Release temporary block rule (`unblock`)
+- ♻️ Reset all session overrides (`reset`)
+- 📋 Show full configuration and active status report
+
+### 2. Command Line Shortcuts
+
+```bash
+/skill-guard status                # Display status report
+/skill-guard enable                # Enable guard
+/skill-guard disable               # Disable guard (requires confirmation)
+/skill-guard mode allowlist        # Switch to allowlist mode
+/skill-guard mode blocklist        # Switch to blocklist mode (requires confirmation)
+/skill-guard allow <pattern>       # Temporarily allow skill/pattern
+/skill-guard block <pattern>       # Temporarily block skill/pattern
+/skill-guard unallow <pattern>     # Revoke session allow rule
+/skill-guard unblock <pattern>     # Release session block rule (requires confirmation)
+/skill-guard reset                 # Clear all session overrides
+```
+
+> **Permission Relaxation Gate**: Any operation expanding accessible skills requires explicit confirmation in TUI mode and is **rejected (Fail-Closed)** in headless (`!ctx.hasUI`) mode.
 
 ---
 
 ## 🧪 Testing
 
-Zero external runtime dependencies. Runs directly on Node.js native test runner:
+Zero third-party runtime dependencies. Executed via native Node.js test runner:
 
 ```bash
 npm test

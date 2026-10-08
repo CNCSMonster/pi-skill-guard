@@ -37,17 +37,20 @@ export function globToRegex(pattern: string): RegExp {
  * 检查给定 skillName 是否匹配 patterns 列表中的任意一项
  */
 export function matchesAnyPattern(skillName: string, patterns: string[]): boolean {
+  if (!skillName || typeof skillName !== "string") return false;
+  const target = skillName.trim().toLowerCase();
+
   for (const pattern of patterns) {
     if (!pattern || typeof pattern !== "string") continue;
-    const trimmed = pattern.trim();
+    const trimmed = pattern.trim().toLowerCase();
     if (!trimmed) continue;
 
     if (trimmed.includes("*") || trimmed.includes("?")) {
-      if (globToRegex(trimmed).test(skillName)) {
+      if (globToRegex(trimmed).test(target)) {
         return true;
       }
     } else {
-      if (trimmed.toLowerCase() === skillName.toLowerCase()) {
+      if (trimmed === target) {
         return true;
       }
     }
@@ -57,47 +60,31 @@ export function matchesAnyPattern(skillName: string, patterns: string[]): boolea
 
 /**
  * 根据配置判断指定 Skill 是否允许使用
+ * 严格执行 Deny-First 原则：命中 block 必封禁
  */
 export function isSkillAllowed(skillName: string, userConfig?: Partial<SkillGuardConfig>): boolean {
   const config = { ...DEFAULT_CONFIG, ...userConfig };
   if (!config.enabled) return true;
+  if (!skillName || typeof skillName !== "string") return false;
 
-  if (config.mode === "blocklist") {
-    // 黑名单模式：命中 block 即拒绝，否则放行
-    const isBlocked = matchesAnyPattern(skillName, config.block);
-    return !isBlocked;
+  const normalizedSkill = skillName.trim().toLowerCase();
+
+  // 1. 最高优先级：黑名单硬拦截（无论处于 allowlist 还是 blocklist）
+  if (config.block && config.block.length > 0) {
+    if (matchesAnyPattern(normalizedSkill, config.block)) {
+      return false; // 硬性封禁
+    }
   }
 
-  // 白名单模式（默认）：命中 allow 放行，未命中则拒绝
-  // 如果白名单为空，默认允许所有（防止未配置时意外清空技能）
+  // 2. 黑名单模式：未被 block 拦截即可放行
+  if (config.mode === "blocklist") {
+    return true;
+  }
+
+  // 3. 白名单模式：白名单为空则全放行，否则必须命中 allow
   if (!config.allow || config.allow.length === 0) {
     return true;
   }
 
-  return matchesAnyPattern(skillName, config.allow);
-}
-
-/**
- * 从文件路径中提取其归属的技能名称
- *
- * 匹配模式如：
- * - .../.agents/skills/<skill-name>/...
- * - .../.pi/skills/<skill-name>/...
- * - .../skills/<skill-name>/SKILL.md
- */
-export function extractSkillNameFromPath(filePath: string): string | null {
-  if (!filePath || typeof filePath !== "string") return null;
-
-  const normalized = filePath.replace(/\\/g, "/");
-  const match = normalized.match(/(?:^|\/)(?:\.agents\/skills|\.pi\/skills|\.claude\/skills|skills)\/([^/]+)(?:\/|$)/);
-
-  if (match && match[1]) {
-    // 忽略自身就是 "skills" 文件夹的情况
-    const candidate = match[1].trim();
-    if (candidate && candidate !== "SKILL.md") {
-      return candidate;
-    }
-  }
-
-  return null;
+  return matchesAnyPattern(normalizedSkill, config.allow);
 }

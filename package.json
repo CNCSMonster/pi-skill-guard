@@ -1,6 +1,6 @@
 {
   "name": "pi-skill-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Project-level declarative skill boundary defense and prompt pruning for Pi Coding Agent",
   "keywords": [
     "pi-package",
