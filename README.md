@@ -20,6 +20,22 @@ Developers often accumulate a large collection of global Agent Skills (e.g., sto
 
 ## 🛡️ Dual-Layer Architecture
 
+### 🌟 Core Philosophy: Embracing Modern Agent Golden Rules
+
+Unlike traditional guardrails that attempt to micromanage models mid-flight with repetitive negative constraints (*"Do NOT use X, NEVER think of Y"*), `pi-skill-guard` strictly aligns with Transformer attention mechanisms and append-only context causality:
+
+1. **Quiet Startup Pruning (Positive Filtering)**:
+   - In-place pruning of skill declarations in `before_agent_start`. Unauthorized skills physically disappear, ensuring **0 token waste** and root-cause hallucination defense;
+   - **Eliminating the Pink Elephant Problem**: If the model never sees a skill, it will never think of it, keeping reasoning traces (Thinking) completely unpolluted.
+2. **Positive Capability Mounting (Append-Only Editor Insertion)**:
+   - Avoid manual prompt writing: conveniently select from unmounted global skills via TUI;
+   - Selecting a skill automatically **inserts positive capability prompts into the current input Editor** for explicit user review and sending, strictly preserving historical KV Cache.
+3. **Capability Reduction via Handoff (Context Hygiene & Clean New Session)**:
+   - Strongly discourages destructive mid-session skill revocation (which fractures memory and reasoning consistency);
+   - Standard handoff paradigm: summarize task state (`/summary` or `handoff.md`) ➔ update configuration ➔ **continue in a clean new session**. Old history remains immutable while the new session operates with 100% clean context.
+4. **Deterministic Tool Gateway Defense**:
+   - Deterministically blocks unauthorized physical `read` and `bash` execution paths with constructive guidance.
+
 ```
 User Prompt
      │

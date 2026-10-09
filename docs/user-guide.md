@@ -123,12 +123,19 @@ Displays an intuitive self-explanatory menu:
 /skill-guard reset                  # Restore to disk configuration
 ```
 
-### 3.3 Security Gates & Lifecycle Isolation
+### 3.3 Security Gates & Capability Lifecycle Guidelines
 
-1. **Zero Disk Contamination**: Session operations are strictly in-memory and never touch `.pi/settings.json`. Cleaned up upon session end;
-2. **Fail-Closed Relaxation Gate**: Any operation expanding access (disabling guard, switching to blocklist, unblocking rules, expanding allowlist):
-   - In TUI mode: triggers a mandatory confirmation modal detailing permission changes;
-   - In non-UI mode (CI/CD, Headless): **fails closed immediately**, preventing silent privilege escalation.
+1. **Zero Disk Contamination & Append-Only Injection**: Session operations strictly preserve disk `.pi/settings.json`, cleaned up upon session end;
+2. **Mid-Session Skill Mounting (TUI Editor Insertion)**:
+   - When unexpected skills are needed mid-session, select from unmounted global skills via the TUI;
+   - On confirmation, positive skill declarations are automatically **inserted into the terminal input Editor**; sending it as a normal user turn preserves 100% of the historical KV Cache;
+3. **Skill Reduction via Clean Handoff Paradigm**:
+   - **Core Rationale**: Strictly avoids injecting negative constraints ("Do NOT use X") mid-session to prevent the Pink Elephant anti-pattern and reasoning trace pollution;
+   - **Recommended Workflow**:
+     1. Instruct the agent to summarize current task progress (or run `/summary`);
+     2. Remove the skill from `.pi/settings.json`'s `allow` list;
+     3. Start a fresh new session with the handoff summary. The agent continues in an impeccably clean context with the updated minimal skill set;
+     4. Past sessions remain immutable audit trails without retroactive context corruption.
 
 ### 3.4 Session Observability & Status Bar Indicator
 
