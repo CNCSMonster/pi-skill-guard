@@ -7,8 +7,6 @@ export interface SkillGuardConfig {
   mode?: "allowlist" | "blocklist";
   allow?: string[];
   block?: string[];
-  blockReadTool?: boolean;
-  blockSkillCommand?: boolean;
   notifyOnFilter?: boolean;
   notifyOnStartup?: boolean;
 }
@@ -18,8 +16,6 @@ export const DEFAULT_CONFIG: Required<SkillGuardConfig> = {
   mode: "allowlist",
   allow: [],
   block: [],
-  blockReadTool: true,
-  blockSkillCommand: true,
   notifyOnFilter: false,
   notifyOnStartup: true,
 };

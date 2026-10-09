@@ -44,9 +44,9 @@ Pi Coding Agent 启动时，默认会把用户全局目录（`~/.agents/skills/`
 [ 本地原生工具正常执行（read / bash / edit 自由调用，零拦截） ]
 ```
 
-### 2.1 原地修改与数组安全性保证
-- **直接操作引用**：直接修改 `event.systemPromptOptions.skills` 数组引用，使用 `skills.splice(0, skills.length, ...filtered)` 清空并填入过滤项；
-- **Freeze 防御降级**：若检测到 `skills` 数组被 `Object.freeze` 冻结，安全回退至替换整个属性引用 `event.systemPromptOptions.skills = filtered`，杜绝运行时异常；
+### 2.1 修改机制
+- 过滤 `event.systemPromptOptions.skills`，未授权技能物理剔除；
+- 原地写回赋值：`event.systemPromptOptions.skills = filtered`，简洁可靠；
 - **结果**：未在白名单中的技能完全不进入系统提示词，模型看不见就不会调用，Token 也不会浪费。
 
 ---
@@ -75,8 +75,11 @@ Pi Coding Agent 启动时，默认会把用户全局目录（`~/.agents/skills/`
 | `allow` | string[] | `[]` | 允许的技能名称或通配符 |
 | `block` | string[] | `[]` | 排除/禁止的技能名称或通配符 |
 
-- **白名单模式 (`allowlist`)**：默认推荐，只有匹配 `allow` 的技能才进入系统提示词；
-- **黑名单模式 (`blocklist`)**：全局技能默认放行，只有匹配 `block` 的技能被静默剔除。
+#### 规则裁决（Deny-First，封禁优先）：
+- **block 优先**：任何命中 `block` 的技能必被剔除；
+- **allowlist 模式**：仅放行显式匹配 `allow` 的技能；
+- **blocklist 模式**：默认全部放行，仅剔除命中 `block` 的技能；
+- **同模式下未用字段**：allowlist 模式下忽略 `block` 字段外的未定义行为，优先遵循 Deny-First。
 
 #### 匹配规则说明（大小写不敏感）：
 - `"archify"`：精确匹配技能名 `archify`（或 `Archify`）；
@@ -110,10 +113,10 @@ Pi Coding Agent 启动时，默认会把用户全局目录（`~/.agents/skills/`
 
 | 场景 | 处理策略 |
 |---|---|
-| 白名单/黑名单正常命中 | 白名单模式下仅保留匹配项；黑名单模式下剔除 block 项 |
-| 白名单为空数组 `[]` | 剔除所有技能（符合开发者完全不暴露技能的预期） |
+| 白名单/黑名单正常命中 | allowlist 模式下仅保留匹配 allow 项（命中 block 必剔除）；blocklist 模式下剔除 block 项 |
+| 白名单为空数组 `[]` | 保持默认安全：若未配置 allow 则原样放行并提示，显式填 `allow: []` 时才剔除全部 |
 | `enabled: false` | 不做任何裁剪，原样放行 |
-| 配置缺失或 JSON 格式异常 | 打一条 warning 日志，不执行裁剪（保持系统可用不崩溃） |
+| 配置缺失或 JSON 格式异常 | 静默保持系统可用，不崩溃 |
 
 ---
 
