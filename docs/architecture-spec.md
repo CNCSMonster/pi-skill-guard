@@ -53,21 +53,35 @@ Pi Coding Agent 启动时，默认会把用户全局目录（`~/.agents/skills/`
 
 ## 3. 技能增减操作指引
 
-### 3.1 开局白名单配置
-在项目的 `.pi/settings.json` 中配置白名单（**白名单是唯一合法模式，无多余 mode 字段**）：
+### 3.1 基础配置（支持白名单与黑名单）
+在项目的 `.pi/settings.json` 中配置守卫规则：
+
 ```json
 {
   "skillGuard": {
     "enabled": true,
-    "allow": ["ccm-*", "archify"]
+    "mode": "allowlist",
+    "allow": ["ccm-*", "archify"],
+    "block": ["boss-recruitment", "*-dangerous"]
   }
 }
 ```
 
+#### 配置参数说明：
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `enabled` | boolean | `true` | 是否启用技能守卫 |
+| `mode` | `"allowlist"` \| `"blocklist"` | `"allowlist"` | 隔离模式：白名单模式或黑名单模式 |
+| `allow` | string[] | `[]` | 允许的技能名称或通配符 |
+| `block` | string[] | `[]` | 排除/禁止的技能名称或通配符 |
+
+- **白名单模式 (`allowlist`)**：默认推荐，只有匹配 `allow` 的技能才进入系统提示词；
+- **黑名单模式 (`blocklist`)**：全局技能默认放行，只有匹配 `block` 的技能被静默剔除。
+
 #### 匹配规则说明（大小写不敏感）：
 - `"archify"`：精确匹配技能名 `archify`（或 `Archify`）；
 - `"ccm-*"`：前缀通配，匹配 `ccm-boss`、`ccm-note`，但不匹配 `arch-ccm`；
-- `"*search*"`：包含通配，匹配任意包含 search 的技能名。
+- `"*dangerous*"`：包含通配，匹配任意包含 dangerous 的技能名。
 
 ### 3.2 中途加能力（TUI 填入输入框）
 若会话进行到一半，开发者突然需要用到某个未放行的全局技能：
@@ -96,10 +110,10 @@ Pi Coding Agent 启动时，默认会把用户全局目录（`~/.agents/skills/`
 
 | 场景 | 处理策略 |
 |---|---|
-| 白名单正常命中 | 仅保留匹配项，其余技能静默剔除 |
+| 白名单/黑名单正常命中 | 白名单模式下仅保留匹配项；黑名单模式下剔除 block 项 |
 | 白名单为空数组 `[]` | 剔除所有技能（符合开发者完全不暴露技能的预期） |
 | `enabled: false` | 不做任何裁剪，原样放行 |
-| 配置缺失或 JSON 格式异常 | 打一条 warning 日志，不执行裁剪（Fail-Open 保持系统可用不崩溃） |
+| 配置缺失或 JSON 格式异常 | 打一条 warning 日志，不执行裁剪（保持系统可用不崩溃） |
 
 ---
 
