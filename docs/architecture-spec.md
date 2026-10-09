@@ -1,5 +1,3 @@
-<!-- Source: pi-skill-guard-docs/design/architecture-spec.md | Sync date: 2026-10-08 -->
-
 # pi-skill-guard 架构设计总规范 (Architecture Specification)
 
 - **版本**: 1.0.0
@@ -127,37 +125,20 @@
 
 ---
 
-## 5. 数学模型与结构化放权判定算法
+## 5. 配置变更安全检查机制
 
-为了彻底杜绝依赖不完整技能枚举所导致的“隐式放权漏洞”（如白名单为空时添加规则后撤销退化为全放行），系统采用**纯结构变迁数学判定算法**：
+为防止因误操作（例如误切模式或清空白名单）导致权限意外扩大，插件提供直观的配置差异检查：
 
-```typescript
-export function isStructurallyRelaxing(
-  cur: Required<SkillGuardConfig>,
-  next: Required<SkillGuardConfig>
-): RelaxationReport
-```
+### 5.1 什么是“扩大权限”？
+系统比对变更前后的配置，当出现以下直观变动时，判定为扩大权限：
+1. **关闭守卫**：从启用变为停用；
+2. **模式切换**：从严格的白名单模式切换为全放行的黑名单模式；
+3. **减少封禁**：从黑名单中移除了某些被封禁的技能；
+4. **增加放行**：在白名单中新加了放行技能，或把白名单清空。
 
-### 5.1 放权变迁判定矩阵
-
-系统判定 $\text{next}$ 相对于 $\text{cur}$ 属于放权（Relaxing Action）当且仅当满足以下任一条件：
-
-1. **守卫全局停用**:
-   $$\text{cur.enabled} = \text{true} \land \text{next.enabled} = \text{false}$$
-2. **模式从白转黑**:
-   $$\text{cur.mode} = \text{"allowlist"} \land \text{next.mode} = \text{"blocklist"}$$
-3. **黑名单规则缩减**:
-   $$\exists b \in \text{cur.block}, \quad b \notin \text{next.block}$$
-4. **白名单模式下规则清空（退化为全放行）**:
-   $$\text{next.mode} = \text{"allowlist"} \land |\text{cur.allow}| > 0 \land |\text{next.allow}| = 0$$
-5. **白名单模式下规则集合扩充**:
-   $$\text{next.mode} = \text{"allowlist"} \land |\text{cur.allow}| > 0 \land (\exists a \in \text{next.allow}, a \notin \text{cur.allow})$$
-6. **已知技能差集逃逸**:
-   $$\exists s \in \text{KnownSkills}, \quad \neg\text{isAllowed}(s, \text{cur}) \land \text{isAllowed}(s, \text{next})$$
-
-### 5.2 结构化签名与二次核算闭环
-在用户确认弹窗等待期间，外部配置可能发生并发修改。系统在操作落地前生成结构化签名 `signature`：
-- 若确认返回后重新计算的 $\text{recheck.signature} \neq \text{check.signature}$，系统判定为状态并发漂移，立即安全终止操作，杜绝非法状态越权生效。
+### 5.2 保护机制
+- **终端交互下（TUI）**：弹出确认弹窗，明确提示权限变更影响，由开发者按回车确认；
+- **自动化无界面脚本下（Headless）**：一律安全拒绝，避免后台误放权。
 
 ---
 
